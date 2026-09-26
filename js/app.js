@@ -1253,7 +1253,7 @@ function renderDetalle() {
       <div class="fld"><label>Cliente</label><div class="val">${p.cliente}</div></div>
       <div class="fld"><label>Fecha de inicio</label><div class="val">${p.plan_inicio||'—'}</div></div>
       <div class="fld"><label>Plazo de entrega <span class="auto-tag">auto</span></label><div class="val">${p.plazo_entrega||'—'}</div></div>
-      <div class="fld"><label>Responsable</label><div class="val">${p.responsable||'Sin asignar'}</div></div>
+      <div class="fld"><label>Responsable de diseño <span class="auto-tag">auto</span></label><div class="val">${p.resp_diseno||'Sin asignar'}</div></div>
       <div class="fld"><label>Estado</label>${estadoSel}</div>
       ${rolesResumen}
       <div class="fld fld-full"><label>Requisitos / Ficha descriptiva</label><div class="val">${p.ficha||'—'}</div></div>
