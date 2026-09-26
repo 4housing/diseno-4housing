@@ -617,6 +617,57 @@ async function guardarMinuta(tareaId, minuta) {
   toast("Minuta guardada");
 }
 
+// #4 · Revision en planta: guardar resultado (conforme/observaciones),
+// observaciones, marca "detalle nuevo" y codigo de formulario.
+async function guardarRevResultado(tareaId, campos) {
+  if (!esCoord()) { toast("Solo coordinación carga el resultado de la revisión"); return; }
+  const { error } = await sb.from("diseno_tareas").update({
+    rev_resultado: campos.rev_resultado || null,
+    rev_observaciones: campos.rev_observaciones || null,
+    rev_detalle_nuevo: !!campos.rev_detalle_nuevo,
+    rev_codigo_form: campos.rev_codigo_form || null,
+  }).eq("id", tareaId);
+  if (error) { console.error("guardarRevResultado:", error); toast("No se pudo guardar: " + error.message); return; }
+  await logActividad("revision", "Resultado de revisión en planta cargado",
+    { tarea_id: tareaId, resultado: campos.rev_resultado, detalle_nuevo: !!campos.rev_detalle_nuevo });
+  await cargarTareas(activo.id); render();
+  toast("Resultado de revisión guardado");
+}
+
+// #6 · Asesorias por rubro (a cargo del responsable tecnico o coordinacion).
+// Se guarda el objeto completo en diseno_proyectos.asesorias (jsonb).
+async function guardarAsesorias(obj) {
+  const puede = esCoord() || (PERFIL && PERFIL.nombre === activo.resp_tecnico);
+  if (!puede) { toast("Solo coordinación o el responsable técnico cargan las asesorías"); return; }
+  if (activo) activo.asesorias = obj;
+  try {
+    await sb.from("diseno_proyectos").update({ asesorias: obj }).eq("id", activo.id);
+    const ix = PROYECTOS.findIndex(p=>p.id===activo.id);
+    if (ix>=0) PROYECTOS[ix].asesorias = obj;
+  } catch(e){ toast("No se pudo guardar: " + (e.message||e)); return; }
+  await logActividad("asesorias", "Asesorías actualizadas", { proyecto_id: activo.id });
+  render();
+  toast("Asesorías guardadas");
+}
+
+// #7 · Validacion por IA: dejar constancia de quien reviso el resultado y cuando.
+// Es a nivel proyecto (diseno_proyectos.ia_revisado_por / ia_revisado_en).
+async function dejarConstanciaIA() {
+  const puede = esCoord() || (PERFIL && PERFIL.nombre === activo.resp_diseno);
+  if (!puede) { toast("Solo coordinación o el responsable de diseño dejan la constancia"); return; }
+  const por = PERFIL ? PERFIL.nombre : null;
+  const en = new Date().toISOString();
+  if (activo) { activo.ia_revisado_por = por; activo.ia_revisado_en = en; }
+  try {
+    await sb.from("diseno_proyectos").update({ ia_revisado_por: por, ia_revisado_en: en }).eq("id", activo.id);
+    const ix = PROYECTOS.findIndex(p=>p.id===activo.id);
+    if (ix>=0) { PROYECTOS[ix].ia_revisado_por = por; PROYECTOS[ix].ia_revisado_en = en; }
+  } catch(e){ toast("No se pudo guardar: " + (e.message||e)); return; }
+  await logActividad("ia", "Constancia de revisión de Validación IA", { proyecto_id: activo.id, por });
+  render();
+  toast("Constancia registrada");
+}
+
 // ============================================================
 // PLANIFICACION AUTOMATICA  (categoria -> dias habiles -> fechas)
 // ============================================================
@@ -1026,6 +1077,43 @@ function nodoTarea(t, depth) {
     }
   }
 
+  // #6 · panel de ASESORIAS por rubro (dentro de Analisis General).
+  // Rubros fijos; asesor en texto libre + 2 checks por rubro (bases / informe).
+  // Lo edita el responsable tecnico del proyecto o la coordinacion.
+  let asesoriasHTML = "";
+  if (t.analisis_general) {
+    const RUBROS_ASES = [
+      {k:"electricidad",  lbl:"Electricidad"},
+      {k:"sanitarias",    lbl:"Sanitarias"},
+      {k:"estructura",    lbl:"Estructura"},
+      {k:"termomecanica", lbl:"Termomecánica"},
+    ];
+    const aData = activo.asesorias || {};
+    const editAses = esCoord() || (PERFIL && PERFIL.nombre === activo.resp_tecnico);
+    const fila = (r) => {
+      const d = aData[r.k] || {};
+      const asesor = d.asesor || "";
+      if (editAses) {
+        return `<div class="ases-row" data-rubro="${r.k}">
+          <div class="ases-rubro">${r.lbl}</div>
+          <input class="ases-asesor" data-rubro="${r.k}" value="${asesor.replace(/"/g,'&quot;')}" placeholder="Asesor/a…">
+          <label class="ases-chk"><input type="checkbox" class="ases-bases" data-rubro="${r.k}" ${d.bases?'checked':''}> Bases entregadas</label>
+          <label class="ases-chk"><input type="checkbox" class="ases-informe" data-rubro="${r.k}" ${d.informe?'checked':''}> Informe recibido</label>
+        </div>`;
+      }
+      return `<div class="ases-row ro">
+        <div class="ases-rubro">${r.lbl}</div>
+        <div class="ases-ro-val">${asesor?asesor.replace(/</g,'&lt;'):'(sin asesor)'} · bases ${d.bases?'✓':'—'} · informe ${d.informe?'✓':'—'}</div>
+      </div>`;
+    };
+    asesoriasHTML = `<div class="ag-panel${editAses?'':' ro'}">
+      <div class="ag-tit">Asesorías por rubro</div>
+      ${RUBROS_ASES.map(fila).join("")}
+      ${editAses?`<button class="btn sm ases-save" style="margin-top:8px">Guardar asesorías</button>`:''}
+      <div class="ag-rule">A cargo del responsable técnico${activo.resp_tecnico?` (${activo.resp_tecnico})`:''}. Marcá bases entregadas al asesor e informe recibido.</div>
+    </div>`;
+  }
+
   // panel de MODO ETAPA 3 (en la tarea "Documentacion ejecutiva" padre)
   let modo3HTML = "";
   if (t.selecciona_modo3) {
@@ -1056,6 +1144,10 @@ function nodoTarea(t, depth) {
   if (t.revision_planta) {
     const fecha = t.rev_fecha || "";
     const persona = t.rev_persona || "";
+    const res = t.rev_resultado || "";
+    const obs = t.rev_observaciones || "";
+    const det = !!t.rev_detalle_nuevo;
+    const cod = t.rev_codigo_form || "";
     if (esCoord()) {
       revHTML = `<div class="ag-panel">
         <div class="ag-tit">Revisión en planta</div>
@@ -1069,11 +1161,47 @@ function nodoTarea(t, depth) {
           </div>
         </div>
         <div class="ag-rule">Si la persona ya tiene una tarea ese día (en cualquier proyecto), se ofrecerá correr esa tarea y las siguientes 1 día hábil.</div>
+        <div class="ag-tit" style="margin-top:10px">Resultado de la revisión</div>
+        <div class="ag-fechas">
+          <div class="ag-f"><label>Resultado</label>
+            <select class="rev-res" data-id="${t.id}">
+              <option value="">(sin cargar)</option>
+              <option value="conforme" ${res==='conforme'?'selected':''}>Conforme</option>
+              <option value="observaciones" ${res==='observaciones'?'selected':''}>Con observaciones</option>
+            </select>
+          </div>
+        </div>
+        <div class="min-field"><label>Observaciones</label>
+          <textarea class="rev-obs" data-id="${t.id}" rows="2" placeholder="Detalle de las observaciones…">${obs.replace(/</g,'&lt;')}</textarea></div>
+        <label class="min-check"><input type="checkbox" class="rev-det" data-id="${t.id}" ${det?'checked':''}> Se detectó un detalle nuevo</label>
+        <div class="min-field"><label>Código de formulario</label>
+          <input class="rev-cod" data-id="${t.id}" value="${cod.replace(/"/g,'&quot;')}" placeholder="Ej: RC-02.02"></div>
+        <button class="btn sm rev-save" data-id="${t.id}" style="margin-top:8px">Guardar resultado</button>
       </div>`;
     } else {
+      const resTxt = res==='conforme' ? 'Conforme' : res==='observaciones' ? 'Con observaciones' : '—';
       revHTML = `<div class="ag-panel ro"><div class="ag-tit">Revisión en planta</div>
-        <div class="ag-fechas-ro">${fecha||'—'} · ${persona||'sin asignar'}</div></div>`;
+        <div class="ag-fechas-ro">${fecha||'—'} · ${persona||'sin asignar'}</div>
+        <div class="ag-fechas-ro">Resultado: <b>${resTxt}</b>${det?` · detalle nuevo${cod?` (${cod.replace(/</g,'&lt;')})`:''}`:''}</div>
+        ${obs?`<div><b>Observaciones:</b> ${obs.replace(/</g,'&lt;')}</div>`:''}</div>`;
     }
+  }
+
+  // #7 · panel de CONSTANCIA de la Validacion por IA (en la tarea auto · IA).
+  // Registra quien reviso el resultado y cuando (nivel proyecto).
+  let iaHTML = "";
+  if (t.auto_ia) {
+    const por = activo.ia_revisado_por || "";
+    const en = activo.ia_revisado_en ? String(activo.ia_revisado_en).replace('T',' ').slice(0,16) : "";
+    const puedeConst = esCoord() || (PERFIL && PERFIL.nombre === activo.resp_diseno);
+    iaHTML = `<div class="ag-panel${por||puedeConst?'':' ro'}">
+      <div class="ag-tit">Validación por IA · constancia de revisión</div>
+      ${por
+        ? `<div class="ag-fechas-ro">Revisado por <b>${por.replace(/</g,'&lt;')}</b>${en?` · ${en}`:''}</div>${puedeConst?`<button class="btn sm ia-const" style="margin-top:6px">Actualizar constancia (a mi nombre)</button>`:''}`
+        : (puedeConst
+            ? `<button class="btn sm ia-const" style="margin-top:4px">Dejar constancia de revisión</button>`
+            : `<div class="ag-fechas-ro">Sin constancia de revisión todavía.</div>`)}
+    </div>`;
   }
 
   // panel de MINUTA (reuniones de validacion). Append-only: cada guardado
@@ -1158,8 +1286,10 @@ function nodoTarea(t, depth) {
       </div>
       ${rolesHTML}
       ${analisisHTML}
+      ${asesoriasHTML}
       ${modo3HTML}
       ${revHTML}
+      ${iaHTML}
       ${minutaHTML}
       ${fechasHTML}
     </div>`;
@@ -1929,6 +2059,32 @@ function bind() {
     };
     guardarMinuta(id, minuta);
   });
+  // #4 · guardar resultado de revision en planta
+  document.querySelectorAll(".rev-save").forEach(b=>b.onclick=()=>{
+    const id = b.dataset.id;
+    const q = sel => document.querySelector(`${sel}[data-id="${id}"]`);
+    guardarRevResultado(id, {
+      rev_resultado: q(".rev-res")?.value || null,
+      rev_observaciones: q(".rev-obs")?.value.trim() || null,
+      rev_detalle_nuevo: !!q(".rev-det")?.checked,
+      rev_codigo_form: q(".rev-cod")?.value.trim() || null,
+    });
+  });
+  // #6 · guardar asesorias por rubro
+  document.querySelectorAll(".ases-save").forEach(b=>b.onclick=()=>{
+    const obj = {};
+    document.querySelectorAll(".ases-row[data-rubro]").forEach(row=>{
+      const k = row.dataset.rubro;
+      obj[k] = {
+        asesor: row.querySelector(".ases-asesor")?.value.trim() || "",
+        bases: !!row.querySelector(".ases-bases")?.checked,
+        informe: !!row.querySelector(".ases-informe")?.checked,
+      };
+    });
+    guardarAsesorias(obj);
+  });
+  // #7 · dejar constancia de revision de la Validacion IA
+  document.querySelectorAll(".ia-const").forEach(b=>b.onclick=()=> dejarConstanciaIA());
   // modal revision confirmar/cancelar
   $("#rev-confirm") && ($("#rev-confirm").onclick = confirmarRevision);
   $("#rev-cancel") && ($("#rev-cancel").onclick = cancelarRevision);
