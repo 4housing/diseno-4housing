@@ -267,6 +267,10 @@ input,select,textarea{font-family:inherit}
 .nc-tipo{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:6px;white-space:nowrap;flex:none;margin-top:2px}
 .nc-tipo.desvio{background:var(--amberbg);color:var(--amber)}
 .nc-tipo.nc{background:var(--redbg);color:var(--red)}
+.nc-filtro{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.nc-filtro label{font-size:12px;font-weight:700;color:#55534a}
+.nc-filtro select{max-width:320px}
+.nc-proy{font-weight:700;color:var(--olive-deep)}
 .nc-main{flex:1;min-width:0}
 .nc-estado{max-width:160px}
 .pie-wrap{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
@@ -551,6 +555,9 @@ input[readonly]{background:#f3f2ec;color:#6f6c60;cursor:not-allowed}
       <div class="field"><label>Título</label><input type="text" id="nc-titulo" placeholder="Resumen breve"></div>
       <div class="field"><label>Descripción</label><textarea id="nc-desc"></textarea></div>
       <div class="field"><label>Sector</label><input type="text" id="nc-sector" placeholder="Diseño y Desarrollo"></div>
+      <div class="field"><label>Proyecto</label>
+        <select id="nc-proyecto" class="inp"><option value="">(General / sin proyecto)</option></select>
+      </div>
       <div class="merr" id="nc-err"></div>
     </div>
     <div class="modal-f">

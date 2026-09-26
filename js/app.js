@@ -398,10 +398,11 @@ async function crearDesvio(){
     descripcion: $("#nc-desc").value.trim()||null,
     sector: $("#nc-sector").value.trim()||null,
     fecha_registro: $("#nc-fecha").value||null,
+    proyecto_id: $("#nc-proyecto") ? ($("#nc-proyecto").value || null) : null,
     estado: "pendiente",
   });
   $("#modal-nc").classList.remove("open");
-  ["nc-titulo","nc-desc","nc-sector","nc-fecha"].forEach(id=>{ const e=$("#"+id); if(e) e.value=""; });
+  ["nc-titulo","nc-desc","nc-sector","nc-fecha","nc-proyecto"].forEach(id=>{ const e=$("#"+id); if(e) e.value=""; });
   await cargarDesvios(); render();
   toast("Registro cargado");
 }
@@ -1673,6 +1674,7 @@ function renderActividadLista(items) {
 // Datos: carga manual y/o webhook desde SharePoint (Power Automate).
 // ============================================================
 let DESVIOS = [];
+let filtroDesvioProy = "";   // "" = todos · "__none__" = sin proyecto · <uuid> = un proyecto
 
 async function cargarDesvios() {
   const { data } = await sb.from("diseno_desvios_nc").select("*").order("creado_en",{ascending:false});
@@ -1695,10 +1697,27 @@ async function cambiarEstadoDesvio(id, estado){
 }
 
 function renderDesvios(){
-  const tot = DESVIOS.length;
+  const proyById = {}; (PROYECTOS||[]).forEach(p=>proyById[p.id]=p);
+  // filtro por proyecto (todos / uno / sin proyecto)
+  const lista = !filtroDesvioProy ? DESVIOS
+    : filtroDesvioProy==="__none__" ? DESVIOS.filter(d=>!d.proyecto_id)
+    : DESVIOS.filter(d=>d.proyecto_id===filtroDesvioProy);
+  const opcionesProy = (PROYECTOS||[]).slice()
+    .sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||""))
+    .map(p=>`<option value="${p.id}" ${filtroDesvioProy===p.id?'selected':''}>${(p.nombre||'(sin nombre)').replace(/</g,'&lt;')}</option>`).join("");
+  const filtroHTML = `<div class="nc-filtro">
+      <label>Proyecto</label>
+      <select id="nc-filtro-proy" class="inp">
+        <option value="" ${filtroDesvioProy===''?'selected':''}>Todos los proyectos</option>
+        <option value="__none__" ${filtroDesvioProy==='__none__'?'selected':''}>General / sin proyecto</option>
+        ${opcionesProy}
+      </select>
+    </div>`;
+
+  const tot = lista.length;
   const porEstado = { pendiente:0, en_tratamiento:0, cerrado:0 };
   const porTipo = { desvio:0, nc:0 };
-  DESVIOS.forEach(d=>{ porEstado[d.estado]=(porEstado[d.estado]||0)+1; porTipo[d.tipo]=(porTipo[d.tipo]||0)+1; });
+  lista.forEach(d=>{ porEstado[d.estado]=(porEstado[d.estado]||0)+1; porTipo[d.tipo]=(porTipo[d.tipo]||0)+1; });
 
   // tarjetas
   const cards = [
@@ -1731,21 +1750,23 @@ function renderDesvios(){
     <div class="cl-row"><span class="cl-name">No conformidades</span><div class="cl-bar"><div class="cl-fill" style="width:${porTipo.nc/maxTipo*100}%;background:var(--amber)"></div></div><span class="cl-num">${porTipo.nc}</span></div>`;
 
   // tabla de registros
-  const filas = DESVIOS.map(d=>{
+  const filas = lista.map(d=>{
     const estSel = esCoord()
       ? `<select class="nc-estado inp" data-id="${d.id}">${Object.keys(EST_NC_LBL).map(k=>`<option value="${k}" ${d.estado===k?'selected':''}>${EST_NC_LBL[k]}</option>`).join("")}</select>`
       : `<span class="badge badge-${d.estado==='cerrado'?'terminado':(d.estado==='pendiente'?'sin_iniciar':'pausado')}">${EST_NC_LBL[d.estado]}</span>`;
+    const proyNom = d.proyecto_id ? ((proyById[d.proyecto_id]||{}).nombre || "Proyecto") : "General";
     return `<div class="nc-row">
       <span class="nc-tipo ${d.tipo}">${d.tipo==='nc'?'NC':'Desvío'}</span>
-      <div class="nc-main"><b>${d.titulo}</b>${d.descripcion?`<div class="help">${d.descripcion}</div>`:''}<div class="help">${d.sector||''} ${d.fecha_registro?'· '+d.fecha_registro:''}</div></div>
+      <div class="nc-main"><b>${d.titulo}</b>${d.descripcion?`<div class="help">${d.descripcion}</div>`:''}<div class="help"><span class="nc-proy">${proyNom.replace(/</g,'&lt;')}</span> ${d.sector?'· '+d.sector:''} ${d.fecha_registro?'· '+d.fecha_registro:''}</div></div>
       ${estSel}
     </div>`;
-  }).join("") || `<p class="empty">Todavía no hay desvíos ni no conformidades cargados.</p>`;
+  }).join("") || `<p class="empty">${filtroDesvioProy?'No hay registros para este filtro.':'Todavía no hay desvíos ni no conformidades cargados.'}</p>`;
 
   const btnNuevo = esCoord()
     ? `<button class="btn sm" id="nc-nuevo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> Cargar registro</button>` : "";
 
   return `
+    ${filtroHTML}
     <div class="stats">${cards}</div>
     <div class="dash-grid">
       <div class="card"><div class="card-h">Distribución por estado</div><div class="card-b">${torta}</div></div>
@@ -2096,8 +2117,23 @@ function bind() {
   if (elP) elP.onclick = eliminarProyecto;
   // estado de desvios/NC
   document.querySelectorAll(".nc-estado").forEach(s=>s.onchange=()=> cambiarEstadoDesvio(s.dataset.id, s.value));
+  // #11 · filtro de desvios por proyecto
+  const ncFiltro = $("#nc-filtro-proy");
+  if (ncFiltro) ncFiltro.onchange = ()=>{ filtroDesvioProy = ncFiltro.value; render(); };
   const ncNuevo = $("#nc-nuevo");
-  if (ncNuevo) ncNuevo.onclick = ()=> $("#modal-nc").classList.add("open");
+  if (ncNuevo) ncNuevo.onclick = ()=>{
+    // poblar el selector de proyecto del modal con los proyectos en memoria
+    const selP = $("#nc-proyecto");
+    if (selP) {
+      const ops = (PROYECTOS||[]).slice()
+        .sort((a,b)=>(a.nombre||"").localeCompare(b.nombre||""))
+        .map(p=>`<option value="${p.id}">${(p.nombre||'(sin nombre)').replace(/</g,'&lt;')}</option>`).join("");
+      selP.innerHTML = `<option value="">(General / sin proyecto)</option>${ops}`;
+      // si hay un proyecto filtrado, precargarlo como sugerencia
+      if (filtroDesvioProy && filtroDesvioProy!=="__none__") selP.value = filtroDesvioProy;
+    }
+    $("#modal-nc").classList.add("open");
+  };
   const estadoSel = $("#estado-sel");
   if (estadoSel) estadoSel.onchange = async()=>{
     await sb.from("diseno_proyectos").update({ estado: estadoSel.value }).eq("id", activo.id);
