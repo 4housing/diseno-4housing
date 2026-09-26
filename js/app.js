@@ -1206,6 +1206,49 @@ function estadoTarea(t){
   return { plan, hoy: hoyDim };
 }
 
+// ---------- EXPORTAR PDF POR ETAPA (tareas, fechas, responsables, minutas) ----------
+// Arma una vista imprimible en #diseno-print y llama a window.print() (sin popup,
+// robusto en PWA/Safari; el @media print oculta el resto de la app).
+function exportarEtapaPDF(nEtapa){
+  const p = activo; if(!p){ toast("Abrí un proyecto primero"); return; }
+  const hijosDeT = (pid)=>TAREAS.filter(t=>t.parent_id===pid).sort((a,b)=>(a.orden||0)-(b.orden||0));
+  const filas=[];
+  TAREAS.filter(t=>String(t.etapa)===String(nEtapa) && t.nivel==="tarea").sort((a,b)=>(a.orden||0)-(b.orden||0))
+    .forEach(function raiz(t){ (function walk(x,d){ filas.push({t:x,d:d}); hijosDeT(x.id).forEach(c=>walk(c,d+1)); })(t,0); });
+  const idsEtapa = new Set(filas.map(x=>x.t.id));
+  const mins = (MINUTAS||[]).filter(m=>idsEtapa.has(m.tarea_id));
+  const esc = s=>String(s==null?"":s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const fdate = s=>s?String(s).slice(0,10).split("-").reverse().join("/"):"—";
+  const rows = filas.map(({t,d})=>`<tr>
+      <td style="padding:4px 8px;border-bottom:1px solid #eee;padding-left:${8+d*16}px">${d?'· ':''}${esc(t.nombre)}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid #eee">${esc(t.responsable||'—')}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center">${t.cumplido?'✓':'○'}</td>
+      <td style="padding:4px 8px;border-bottom:1px solid #eee;white-space:nowrap">${fdate(t.fecha_inicio)} → ${fdate(t.fecha_fin)}</td>
+    </tr>`).join("");
+  const minsHTML = mins.length ? mins.map(m=>{
+      const tnom = (TAREAS.find(t=>t.id===m.tarea_id)||{}).nombre||"";
+      return `<div style="border:1px solid #ddd;border-radius:6px;padding:8px 10px;margin-bottom:8px">
+        <div style="font-weight:600;font-size:12px">${esc(tnom)} · ${fdate(m.fecha_hora)}${m.requiere_revision?' · <span style="color:#a33">requiere revisión</span>':''}</div>
+        ${m.temas?`<div style="font-size:12px;margin-top:3px"><b>Temas:</b> ${esc(m.temas)}</div>`:''}
+        ${m.detalle?`<div style="font-size:12px;margin-top:2px"><b>Detalle:</b> ${esc(m.detalle)}</div>`:''}
+        ${m.creado_por_nombre?`<div style="font-size:10.5px;color:#888;margin-top:3px">Cargó: ${esc(m.creado_por_nombre)}</div>`:''}
+      </div>`; }).join("") : '<div style="font-size:12px;color:#888">Sin minutas en esta etapa.</div>';
+  document.getElementById("diseno-print").innerHTML = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;color:#222;max-width:900px;padding:20px">
+      <div style="font-size:20px;font-weight:700">Etapa ${esc(nEtapa)} — ${esc(p.nombre)}</div>
+      <div style="font-size:12px;color:#666;margin-bottom:2px">${esc(p.nro_if||'')} · ${esc(p.cliente||'')}</div>
+      <div style="font-size:11px;color:#999;margin-bottom:14px">Generado el ${new Date().toLocaleDateString('es-AR')}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="text-align:left;background:#f3f2ec"><th style="padding:5px 8px">Tarea</th><th style="padding:5px 8px">Responsable</th><th style="padding:5px 8px;text-align:center">Hecho</th><th style="padding:5px 8px">Fechas (inicio → fin)</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="font-size:14px;font-weight:700;margin:18px 0 8px">Minutas</div>
+      ${minsHTML}
+    </div>`;
+  window.print();
+}
+window.exportarEtapaPDF = exportarEtapaPDF;
+
 function renderDetalle() {
   const p = activo;
   const porEtapa = {};
@@ -1214,7 +1257,7 @@ function renderDetalle() {
   });
   const etapasHTML = Object.keys(porEtapa).sort().map(e=>`
     <div class="etapa-block">
-      <div class="etapa-head">Etapa ${e}</div>
+      <div class="etapa-head">Etapa ${e}<button class="etapa-pdf-btn no-print" onclick="exportarEtapaPDF('${e}')">PDF</button></div>
       ${porEtapa[e].sort((a,b)=>a.orden-b.orden).map(t=>nodoTarea(t,0)).join("")}
     </div>`).join("");
 
