@@ -207,6 +207,8 @@ function etapaCompleta(nEtapa){
   return hojas.every(h => h.cumplido);
 }
 function gateBloqueado(tarea) {
+  // Regla de etapa: no se puede arrancar Etapa 2 sin los Requisitos / ficha descriptiva cargados.
+  if (tarea.etapa === 2 && !(activo && (activo.ficha||"").trim())) return "Requisitos / ficha descriptiva (cargala primero)";
   // Regla de etapa: no se puede arrancar Etapa 3 sin la Etapa 2 completa.
   if (tarea.etapa === 3 && !etapaCompleta(2)) return "Etapa 2 (completala primero)";
   // una tarea está bloqueada si existe, antes que ella (mismo padre, MISMA ETAPA),
@@ -261,6 +263,16 @@ async function toggleCheck(t) {
 // ese rol y aun no tengan un responsable distinto fijado manualmente.
 async function asignarRol(rolKey, persona) {
   if (!esCoord()) { toast("Solo la coordinacion puede asignar responsables"); return; }
+  // Regla: el control de documentación (resp_tecnico) NO lo puede hacer la misma
+  // persona que el responsable de documentación (resp_documentacion).
+  if (persona) {
+    if (rolKey === "resp_tecnico" && activo.resp_documentacion === persona) {
+      toast("El control de documentación no puede ser la misma persona que el responsable de documentación."); return;
+    }
+    if (rolKey === "resp_documentacion" && activo.resp_tecnico === persona) {
+      toast("El responsable de documentación no puede ser la misma persona que quien hace el control (responsable técnico)."); return;
+    }
+  }
   // 1) guardar en el proyecto
   await sb.from("diseno_proyectos").update({ [rolKey]: persona || null }).eq("id", activo.id);
   // 2) cascada: actualizar responsable de todas las tareas con ese rol
