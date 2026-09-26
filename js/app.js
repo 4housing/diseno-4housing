@@ -1126,6 +1126,7 @@ function nodoTarea(t, depth) {
       : p.estado==="atrasada" ? `<span class="desv late">+${p.dias}d vs plan</span>` : `<span class="desv early">${p.dias}d vs plan</span>`);
     // vs. hoy: solo alertamos cuando aporta info (vencida / por vencer). Cumplida y al día no ensucian.
     const tagHoy = (h) => {
+      if (h.estado==="cumplida_tarde") return `<span class="desv over" title="Se completó después de la fecha planificada">cumplida · +${h.dias}d de atraso</span>`;
       if (h.estado==="vencida")     return `<span class="desv over">vencida · pendiente hace ${Math.abs(h.dias)}d</span>`;
       if (h.estado==="por_vencer")  return `<span class="desv soon">vence en ${h.dias}d</span>`;
       return "";
@@ -1196,6 +1197,12 @@ function estadoTarea(t){
   let hoyDim = { estado:null, dias:null };
   if (t.cumplido) {
     hoyDim.estado = "cumplida";
+    // #10: si se completó DESPUÉS de la fecha planificada, dejar registrado el
+    // atraso (fecha real de cumplido vs fin planificado) aunque la tarea esté hecha.
+    if (t.cumplido_en && t.fecha_fin) {
+      const dTarde = Math.round((new Date(String(t.cumplido_en).slice(0,10)) - new Date(t.fecha_fin)) / 86400000);
+      if (dTarde > 0) { hoyDim.estado = "cumplida_tarde"; hoyDim.dias = dTarde; }
+    }
   } else if (t.fecha_fin) {
     const diasAHoy = Math.round((new Date(t.fecha_fin) - hoy) / 86400000); // + = falta, - = paso
     hoyDim.dias = diasAHoy;
