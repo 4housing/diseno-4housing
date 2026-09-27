@@ -24,6 +24,100 @@ const soyResponsable = (t) => PERFIL && t && t.responsable && t.responsable === 
 // puedeTildar: solo el responsable de la tarea, o coordinacion
 const puedeTildar = (t) => esCoord() || soyResponsable(t);
 
+// ===== Etapa 2 · Permisos por seccion (Ver / Editar) =====
+// Secciones controlables (coinciden con el catalogo del panel del portal). En
+// Diseno el id de pestana ya es el id de seccion.
+const SECCIONES_DIS = ["dash", "proj", "desvios", "audit"];
+// Secciones con edicion real (para el cartel "solo lectura"). Solo Proyectos edita.
+const SECCIONES_EDITABLES_DIS = new Set(["proj"]);
+function seccionDeTab(t){ return t || null; }
+// Conjunto de secciones VISIBLES. null = todas. Sin lista guardada → ve todo
+// (retrocompatible: los usuarios actuales no pierden nada).
+function verSet(){
+  if (!PERFIL || PERFIL.esDir) return null;
+  if (Array.isArray(PERFIL.ver)) return new Set(PERFIL.ver);
+  return null;
+}
+// Conjunto de secciones EDITABLES. null = todas. 'lectura'/'lector' → ninguna.
+// Sin lista guardada → edita todo (segun el rol, que ya gatea cada accion).
+function editSet(){
+  if (!PERFIL || PERFIL.esDir) return null;
+  if (PERFIL.rol === "lectura" || PERFIL.rol === "lector") return new Set();
+  if (Array.isArray(PERFIL.editar)) return new Set(PERFIL.editar);
+  return null;
+}
+function puedeVerSeccion(sec){ if (!sec) return true; const s = verSet(); return s === null || s.has(sec); }
+function puedeEditarSeccion(sec){ if (!sec) return true; const s = editSet(); return s === null || s.has(sec); }
+function edicionPermitidaActual(){ return puedeEditarSeccion(seccionDeTab(tab)); }
+
+// Guard de escritura: si la seccion actual no es editable, bloquea insert/update/
+// upsert/delete sin tocar la base. La carga de datos es solo lectura, asi que no
+// interfiere con ver. Los historiales (logs) siempre se permiten.
+const TABLAS_LIBRES_EDICION = new Set(["diseno_historial_actividad", "diseno_historial_proyecto", "diseno_historial_responsable"]);
+function instalarGuardEdicion(){
+  if (!sb || sb.__guardEdicion) return;
+  const _from = sb.from.bind(sb);
+  sb.from = function(tabla){
+    const qb = _from(tabla);
+    if (TABLAS_LIBRES_EDICION.has(tabla)) return qb;
+    ["insert", "update", "upsert", "delete"].forEach(m => {
+      if (typeof qb[m] !== "function") return;
+      const orig = qb[m].bind(qb);
+      qb[m] = function(){
+        if (!edicionPermitidaActual()){
+          try { toast("Solo lectura: no tenés permiso para editar esta sección."); } catch(e){}
+          return bloqueoBuilder("Solo lectura: no tenés permiso de edición en esta sección.");
+        }
+        return orig.apply(qb, arguments);
+      };
+    });
+    return qb;
+  };
+  sb.__guardEdicion = true;
+}
+function bloqueoBuilder(msg){
+  const res = { data: null, error: { message: msg } };
+  const p = new Proxy(function(){}, {
+    get(_t, prop){
+      if (prop === "then") return (resolve) => { resolve(res); return Promise.resolve(res); };
+      if (prop === "catch") return () => p;
+      if (prop === "finally") return (cb) => { try { cb && cb(); } catch(e){} return p; };
+      return () => p;
+    },
+    apply(){ return p; }
+  });
+  return p;
+}
+// Oculta del menu las pestanas que el usuario no puede ver; si la actual quedo
+// oculta, salta a la primera visible.
+function aplicarVisibilidadTabs(){
+  const visibles = [];
+  document.querySelectorAll(".navbtn").forEach(b => {
+    const sec = b.dataset.tab;
+    const ok = puedeVerSeccion(sec);
+    b.style.display = ok ? "" : "none";
+    if (ok) visibles.push(sec);
+  });
+  if (!puedeVerSeccion(seccionDeTab(tab))) tab = visibles[0] || "dash";
+}
+// Cartel "solo lectura" arriba del contenido, segun la seccion actual.
+function actualizarBannerSoloLectura(){
+  const sec = seccionDeTab(tab);
+  const mostrar = SECCIONES_EDITABLES_DIS.has(sec) && !puedeEditarSeccion(sec);
+  let b = document.getElementById("banner-solo-lectura");
+  const c = document.getElementById("content");
+  if (!mostrar){ if (b) b.style.display = "none"; return; }
+  if (!b){
+    b = document.createElement("div");
+    b.id = "banner-solo-lectura";
+    b.style.cssText = "background:#FCF4E6;border:1px solid #E9D8B0;color:#8A6D1F;border-radius:9px;padding:8px 12px;margin-bottom:14px;font-size:13px";
+    if (c && c.parentNode) c.parentNode.insertBefore(b, c);
+  }
+  b.textContent = "👁 Solo lectura — podés ver esta sección pero no editarla. Si necesitás editar, pedile acceso a dirección.";
+  b.style.display = "";
+}
+instalarGuardEdicion();
+
 const ESTADO_LBL = { sin_iniciar:"Sin iniciar", en_ejecucion:"En ejecución", terminado:"Terminado", pausado:"Pausado" };
 
 // ---------- AUTH ----------
@@ -37,6 +131,7 @@ async function init() {
   const ok = await cargarPerfil(session.user);
   if (!ok) return; // sin sector diseno: cargarPerfil ya mostro el aviso
   mostrarPantalla("app");
+  aplicarVisibilidadTabs(); // Etapa 2: ocultar pestañas sin permiso de visión
   await cargarProyectos();
   await cargarTareasTodas();
   await cargarActividad();
@@ -49,17 +144,26 @@ async function init() {
 async function cargarPerfil(user) {
   const [{ data: perfil }, { data: ps }] = await Promise.all([
     sb.from("perfiles").select("nombre, activo, es_direccion").eq("id", user.id).maybeSingle(),
-    sb.from("perfiles_sector").select("cargo").eq("perfil_id", user.id).eq("sector", "diseno").maybeSingle(),
+    sb.from("perfiles_sector").select("cargo, permisos").eq("perfil_id", user.id).eq("sector", "diseno").maybeSingle(),
   ]);
-  const rol = (perfil && perfil.es_direccion) ? "admin" : (ps ? ps.cargo : null);
-  if (!perfil || !perfil.activo || !rol) {
+  const esDir = !!(perfil && perfil.es_direccion);
+  const rolRaw = esDir ? "admin" : (ps ? ps.cargo : null);
+  if (!perfil || !perfil.activo || !rolRaw) {
     mostrarPantalla("sin-acceso");
     return false;
   }
-  PERFIL = { id: user.id, nombre: perfil.nombre || user.email, rol };
+  // Roles unificados del panel → semántica interna de Diseño:
+  // editor = miembro con edición (como 'diseno'); lector = solo visión (como 'lectura').
+  const rol = ({ editor: "diseno", lector: "lectura" })[rolRaw] || rolRaw;
+  const perm = (ps && ps.permisos) || {};
+  PERFIL = {
+    id: user.id, nombre: perfil.nombre || user.email, rol, rolLabel: rolRaw, esDir,
+    ver: Array.isArray(perm.ver) ? perm.ver : null,
+    editar: Array.isArray(perm.editar) ? perm.editar : null
+  };
   window.PERFIL = PERFIL; // para auditoria.js (rolUsuario)
   $("#user-name").textContent = PERFIL.nombre;
-  $("#user-rol").textContent = PERFIL.rol;
+  $("#user-rol").textContent = PERFIL.rolLabel;
   return true;
 }
 
@@ -916,6 +1020,7 @@ async function guardarModoEtapa3(modo) {
 // ---------- RENDER ----------
 function render() {
   document.querySelectorAll(".navbtn").forEach(b=>b.classList.toggle("active", b.dataset.tab===tab));
+  actualizarBannerSoloLectura(); // cartel "solo lectura" según la sección actual
   const c = $("#content");
   if (tab==="proj")  c.innerHTML = activo ? "" : renderLista(), activo && renderDetalle();
   if (tab==="dash")  c.innerHTML = renderDash();
