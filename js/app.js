@@ -27,7 +27,7 @@ const puedeTildar = (t) => esCoord() || soyResponsable(t);
 // ===== Etapa 2 · Permisos por seccion (Ver / Editar) =====
 // Secciones controlables (coinciden con el catalogo del panel del portal). En
 // Diseno el id de pestana ya es el id de seccion.
-const SECCIONES_DIS = ["dash", "proj", "desvios", "audit"];
+const SECCIONES_DIS = ["dash", "proj", "desvios", "actividad", "audit"];
 // Secciones con edicion real (para el cartel "solo lectura"). Solo Proyectos edita.
 const SECCIONES_EDITABLES_DIS = new Set(["proj"]);
 function seccionDeTab(t){ return t || null; }
@@ -1026,6 +1026,7 @@ function render() {
   if (tab==="dash")  c.innerHTML = renderDash();
   if (tab==="desvios") c.innerHTML = renderDesvios();
   if (tab==="audit") c.innerHTML = renderAudit();
+  if (tab==="actividad") c.innerHTML = renderActividadTab();
   bind();
 }
 
@@ -1786,6 +1787,14 @@ async function cargarDesvios() {
   DESVIOS = data || [];
 }
 
+// Sección "Actividad": timeline completo (el dashboard muestra un preview).
+function renderActividadTab(){
+  return `<div class="card">
+    <div class="card-h">Actividad</div>
+    <div class="card-b">${renderActividadLista(ACTIVIDAD)}</div>
+  </div>`;
+}
+
 // historial de actividad reciente (todos los proyectos), para el dashboard
 async function cargarActividad(limite) {
   const { data } = await sb.from("diseno_historial_actividad").select("*")
@@ -2105,6 +2114,7 @@ function bind() {
     tab=b.dataset.tab;
     if(tab==="dash"){ await cargarProyectos(); await cargarTareasTodas(); await cargarActividad(); }
     if(tab==="desvios"){ await cargarDesvios(); }
+    if(tab==="actividad"){ await cargarActividad(200); }
     if(tab==="audit"){ await cargarAuditorias(); }
     render();
   });
