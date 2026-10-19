@@ -64,7 +64,9 @@ function instalarGuardEdicion(){
       if (typeof qb[m] !== "function") return;
       const orig = qb[m].bind(qb);
       qb[m] = function(){
-        if (!edicionPermitidaActual()){
+        // Excepción: tildar la propia tarea (lo hace el responsable/coordinación vía toggleCheck)
+        // no requiere permiso de EDICIÓN de la sección; es una acción granular del responsable.
+        if (!edicionPermitidaActual() && !sb.__tildeBypass){
           try { toast("Solo lectura: no tenés permiso para editar esta sección."); } catch(e){}
           return bloqueoBuilder("Solo lectura: no tenés permiso de edición en esta sección.");
         }
@@ -350,7 +352,11 @@ async function toggleCheck(t) {
   const blo = gateBloqueado(t);
   if (blo && !t.cumplido) { toast(`Bloqueado: completa primero ${blo}`); return; }
   const nuevo = !t.cumplido;
-  await sb.from("diseno_tareas").update({ cumplido:nuevo, cumplido_en: nuevo?new Date().toISOString():null }).eq("id", t.id);
+  // El responsable (o coordinación) puede tildar su tarea aunque no tenga permiso de edición de la
+  // sección: se exime SOLO este update del guard (puedeTildar ya se validó arriba).
+  sb.__tildeBypass = true;
+  try { await sb.from("diseno_tareas").update({ cumplido:nuevo, cumplido_en: nuevo?new Date().toISOString():null }).eq("id", t.id); }
+  finally { sb.__tildeBypass = false; }
   await logActividad(
     nuevo ? "tarea_tildada" : "tarea_destildada",
     `${nuevo ? "Tildada" : "Destildada"}: ${t.nombre} (Etapa ${t.etapa})`,
