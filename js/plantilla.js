@@ -209,7 +209,7 @@ window.PLANTILLA = [
         subitems: [
           { nombre: "Listado de documentos", responsable: "Ileana Callero", slug: "e3_listado" },
           { nombre: "Documentacion ejecutiva", rol: "resp_documentacion", slug: "e3_ejecutiva" },
-          { nombre: "Control de documentacion", rol: "coord_produccion", slug: "e3_control" },
+          { nombre: "Control de documentacion", slug: "e3_control" },
           { nombre: "Computo a generar por asistente IA", rol: "resp_diseno", slug: "e3_computo" },
         ],
       },
