@@ -1167,7 +1167,7 @@ function nodoTarea(t, depth) {
             <input type="date" class="ag-fin" value="${fin}" readonly title="Se calcula con la categoría">
           </div>
         </div>
-        <div class="ag-tit">Rubros a redibujar</div>
+        <div class="ag-tit">Rubros a rediseñar</div>
         <div class="ag-rubros">
           ${window.RUBROS_REDIBUJO.map(r=>`
             <label class="ag-chk"><input type="checkbox" class="ag-rubro" value="${r}" ${sel.includes(r)?'checked':''}> ${r}</label>`).join("")}
@@ -1183,7 +1183,7 @@ function nodoTarea(t, depth) {
     } else {
       analisisHTML = `<div class="ag-panel ro">
         <div class="ag-fechas-ro">Inicio: <b>${ini||'—'}</b> · Fin E2: <b>${fin||'—'}</b></div>
-        <div class="ag-tit">Rubros a redibujar</div>
+        <div class="ag-tit">Rubros a rediseñar</div>
         <div class="ag-rubros-ro">${sel.length ? sel.join(" · ") : "(sin definir)"}</div>
         <span class="ag-cat-info">Categoría <b>${cat}</b> · ${totalCat} días hábiles</span>
       </div>`;
@@ -1606,15 +1606,32 @@ function renderDash() {
     if (diasAlPlazo !== null && diasAlPlazo < 0) { nivel="rojo"; motivo=`Plazo vencido hace ${Math.abs(diasAlPlazo)}d · ${p.avance_pct}%`; }
     else if (diasAlPlazo !== null && diasAlPlazo <= 7 && p.avance_pct < 90) { nivel="amber"; motivo=`Entrega en ${diasAlPlazo}d con ${p.avance_pct}%`; }
     else if ((desvioProy[p.id]||0) >= 5) { nivel="amber"; motivo=`+${desvioProy[p.id]}d de atraso vs. plan`; }
+    // Semáforo que carga Claude (conector 4housing Apps): anticipa atrasos antes de que venza una fecha.
+    // Un proyecto entra al panel si lo marca el cálculo por fechas O el semáforo (ámbar/rojo); manda el más grave.
+    const sem = p.semaforo==="rojo" ? "rojo" : (p.semaforo==="ambar" ? "amber" : null);
+    if (sem && (!nivel || (sem==="rojo" && nivel!=="rojo"))) nivel = sem;
     return nivel ? { p, nivel, motivo, diasAlPlazo, desvio: desvioProy[p.id]||0 } : null;
   }).filter(Boolean).sort((a,b)=> (a.nivel==="rojo"?-1:1) - (b.nivel==="rojo"?-1:1));
 
+  // Línea del semáforo de Claude bajo el proyecto: color, motivo y cuándo se evaluó.
+  const escSem = s => String(s==null?"":s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const semLinea = p => {
+    if (!p.semaforo) return "";
+    const cls = p.semaforo==="rojo" ? "rojo" : (p.semaforo==="ambar" ? "amber" : "verde");
+    const lbl = p.semaforo==="rojo" ? "Rojo" : (p.semaforo==="ambar" ? "Ámbar" : "Verde");
+    const at = p.semaforo_actualizado_en;
+    const viejo = at && (Date.now() - new Date(at).getTime()) > 36*3600*1000;
+    return `<div class="al-sem ${cls}" title="Semáforo cargado por Claude${at?' · '+new Date(at).toLocaleString('es-AR'):''}">
+      <span class="al-sem-tag">Semáforo · ${lbl}</span>${p.semaforo_motivo?' '+escSem(p.semaforo_motivo):''}
+      ${at?`<span class="al-sem-at${viejo?' viejo':''}">· ${tiempoRelativo(at)}${viejo?' (sin actualizar)':''}</span>`:''}</div>`;
+  };
   const proyAlertaHTML = proyAlerta.length ? proyAlerta.map(a=>`
-    <div class="al-row" data-goto="${a.p.id}">
+    <div class="al-row${a.p.semaforo?' con-sem':''}" data-goto="${a.p.id}">
       <span class="al-dot ${a.nivel}"></span>
       <span class="al-name">${a.p.nombre}</span>
-      <span class="al-proy">${a.motivo}</span>
+      <span class="al-proy">${a.motivo || '—'}</span>
       <span class="al-fecha">${a.p.plazo_entrega||'—'}</span>
+      ${semLinea(a.p)}
     </div>`).join("") : `<p class="empty">Todos los proyectos en plazo.</p>`;
 
   // ----- ALERTAS: vencidas y por vencer (mismo criterio unificado que el detalle) -----
