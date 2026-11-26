@@ -338,10 +338,8 @@ async function toggleCheck(t) {
     toast(`Solo ${t.responsable||"el responsable asignado"} puede tildar esta tarea`);
     return;
   }
-  if (t.auto_ia) {
-    toast("Esta tarea se tilda sola cuando la auditoria IA no detecta inconsistencias ni interferencias");
-    return;
-  }
+  // "Validación por asistente IA" (auto_ia): desde el 2026-11-26 la tilda el responsable a mano
+  // (la auditoría IA ya no se hace desde la app).
   if (t.analisis_general) {
     toast("Se completa sola: cargá la fecha de inicio y los rubros en el panel");
     return;
@@ -1081,7 +1079,6 @@ function nodoTarea(t, depth) {
   if (!tieneHijos) {
     const gateLock = blo && !t.cumplido;
     const permLock = !puedoTildarEsta && !t.cumplido;   // no soy responsable ni coordinacion
-    const iaLock   = t.auto_ia;                          // se tilda sola por IA
     const agAuto   = t.analisis_general;                 // se completa sola (inicio)
     const rolesAuto = t.asigna_roles;                    // se completa sola (4 roles)
     // El check de "Analisis general" NO se tilda a mano ni muestra candado:
@@ -1097,10 +1094,9 @@ function nodoTarea(t, depth) {
         ${completo?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg>':''}
       </button>`;
     } else {
-    const lock = gateLock || permLock || iaLock;
+    const lock = gateLock || permLock;
     let titleTxt = "";
     if (gateLock) titleTxt = "Bloqueado: " + blo;
-    else if (iaLock) titleTxt = "Se tilda automaticamente con la auditoria IA";
     else if (permLock) titleTxt = "Solo " + (t.responsable||"el responsable") + " puede tildar";
     checkHTML = `<button class="chk ${t.cumplido?'on':''} ${lock&&!t.cumplido?'lock':''}" data-id="${t.id}" ${titleTxt?`title="${titleTxt}"`:''}>
       ${t.cumplido?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg>':(lock?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>':'')}
@@ -1390,7 +1386,7 @@ function nodoTarea(t, depth) {
     <div class="tnode lvl-${t.nivel} ${esGate?'is-gate':''}" style="margin-left:${depth*18}px">
       <div class="tnode-row">
         ${checkHTML}
-        <div class="tnode-name">${t.nombre}${esGate?' <span class="gate-tag">gate · 6 rubros</span>':''}${t.auto_ia?' <span class="ia-tag">auto · IA</span>':''} ${rolTag}
+        <div class="tnode-name">${t.nombre}${esGate?' <span class="gate-tag">gate · 6 rubros</span>':''}${t.auto_ia?' <span class="ia-tag">IA</span>':''} ${rolTag}
           ${t.nota?`<div class="tnode-note">${t.nota}</div>`:''}
         </div>
         ${respSel}
